@@ -2,5 +2,6 @@ from scraper import scrape_boatos_saude
 
 
 if __name__ == '__main__':
-	scrape_boatos_saude()
+	print('Iniciando scrapping')
+	scrape_boatos_saude(output='corpus.csv')
 

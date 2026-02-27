@@ -71,8 +71,8 @@ def _collect_links_from_search_paginated(page, query, max_pages=20):
         success = False
         for url in urls_to_try:
             try:
-                page.goto(url, timeout=15000)
-                page.wait_for_timeout(600)
+                page.goto(url, timeout=30000, wait_until='domcontentloaded')
+                page.wait_for_timeout(1000)
                 # if page contains no results, break
                 items = page.query_selector_all('.entry-title a')
                 if not items:
@@ -93,11 +93,14 @@ def _collect_links_from_search_paginated(page, query, max_pages=20):
                         links.add(href.split('#')[0])
                 success = True
                 break
-            except Exception:
+            except Exception as e:
+                print(f"Erro ao acessar {url}: {e}")
+                time.sleep(2)  # Espera antes de tentar próxima URL
                 continue
         if not success:
-            # no more pages for this query
+            print(f"Falha ao obter resultados da página {p} para '{query}'")
             break
+        time.sleep(1)  # Pausa entre páginas
     return links
 
 
@@ -139,77 +142,109 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
     seen = set()
     count = 0
     skipped_existing = 0
+    # Garante criação do arquivo CSV com cabeçalho
+    import csv
+    fieldnames = ['url', 'title', 'date', 'content', 'source', 'scraped_at']
+    if not os.path.exists(output):
+        with open(output, 'w', encoding='utf-8', newline='') as fout:
+            writer = csv.DictWriter(fout, fieldnames=fieldnames)
+            writer.writeheader()
 
-    # Load existing URLs from output file to avoid duplicates across runs
+    # Load existing URLs from output CSV file to avoid duplicates across runs
     if load_existing and os.path.exists(output):
         try:
-            with open(output, 'r', encoding='utf-8') as fin:
-                for line in fin:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                        url = obj.get('url')
-                        if url:
-                            seen.add(url)
-                    except Exception:
-                        continue
+            import csv
+            with open(output, 'r', encoding='utf-8', newline='') as fin:
+                reader = csv.DictReader(fin)
+                for row in reader:
+                    url = row.get('url')
+                    if url:
+                        seen.add(url)
         except Exception:
             pass
+    print(f"Iniciando scraper... URLs já coletadas: {len(seen)}")
+    
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         page = browser.new_page()
 
-        # gather candidate links from sitemap and paginated searches
+        # Prioriza busca no boatos.org
+        print("Coletando URLs do boatos.org...")
         candidates = set()
-        if use_sitemap:
-            try:
-                sitemap_urls = _collect_links_from_sitemap()
-                for u in sitemap_urls:
-                    lu = u.lower()
-                    if any(k in lu for k in health_keywords):
-                        candidates.add(u)
-            except Exception:
-                pass
+        try:
+            sitemap_urls = _collect_links_from_sitemap()
+            print(f"URLs encontradas no sitemap: {len(sitemap_urls)}")
+            for u in sitemap_urls:
+                lu = u.lower()
+                if any(k in lu for k in health_keywords):
+                    candidates.add(u)
+            print(f"URLs relevantes de saúde no boatos.org: {len(candidates)}")
+        except Exception as e:
+            print(f"Erro ao coletar sitemap: {e}")
+            pass
 
-        # collect from paginated search results
+        # Depois busca paginada e fallback
+        print("Coletando URLs das buscas paginadas...")
         for q in queries:
+            print(f"Buscando termo: {q}")
             try:
                 links = _collect_links_from_search_paginated(page, q, max_pages=max_pages_per_query)
+                print(f"URLs encontradas para '{q}': {len(links)}")
                 candidates.update(links)
-            except Exception:
+            except Exception as e:
+                print(f"Erro ao buscar '{q}': {e}")
+                try:
+                    page.close()
+                    page = browser.new_page()
+                except:
+                    pass
                 continue
 
-        # also include single-page search as fallback
+        print(f"Total de candidatos após busca paginada: {len(candidates)}")
+
+        print("Executando busca single-page como fallback...")
         for q in queries:
             try:
                 links = _collect_links_from_search(page, q)
+                print(f"URLs fallback para '{q}': {len(links)}")
                 candidates.update(links)
             except Exception:
                 continue
 
+        print(f"Total de candidatos finais: {len(candidates)}")
+        new_candidates = candidates - seen
+        print(f"URLs novas para processar: {len(new_candidates)}")
+
         # iterate candidates and fetch content, stopping at max_articles
-        with open(output, 'a', encoding='utf-8') as fout:
+        print(f"Iniciando processamento de {len(candidates)} candidatos...")
+        processed = 0
+        with open(output, 'a', encoding='utf-8', newline='') as fout:
+            writer = csv.DictWriter(fout, fieldnames=fieldnames)
             for link in sorted(candidates):
+                processed += 1
+                if processed % 10 == 0:
+                    print(f"Processando URL {processed}/{len(candidates)} - Coletados: {count}")
                 if count >= max_articles:
+                    print(f"Limite de {max_articles} artigos atingido")
                     break
                 if link in seen:
                     skipped_existing += 1
                     continue
+                print(f"Processando: {link}")
                 try:
-                    page.goto(link, timeout=30000)
-                    page.wait_for_timeout(700)
+                    page.goto(link, timeout=30000, wait_until='domcontentloaded')
+                    page.wait_for_timeout(1000)
                     title = _extract_title(page)
                     date = _extract_date(page)
                     content = _extract_text(page)
                     if not content or len(content.split()) < 30:
-                        # skip very short pages
+                        print(f"  Pulando: conteúdo muito curto ({len(content.split()) if content else 0} palavras)")
                         seen.add(link)
                         continue
                     # filter by content keywords to ensure relevance
                     lc = content.lower()
                     if not any(k in lc for k in health_keywords) and not any(k in link.lower() for k in health_keywords):
+                        print(f"  Pulando: não relevante para saúde")
                         seen.add(link)
                         continue
                     record = {
@@ -220,13 +255,15 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
                         'source': 'boatos.org',
                         'scraped_at': time.strftime('%Y-%m-%dT%H:%M:%S')
                     }
-                    fout.write(json.dumps(record, ensure_ascii=False) + '\n')
+                    writer.writerow(record)
+                    fout.flush()  # Force write to disk
                     seen.add(link)
                     count += 1
+                    print(f"  ✓ Coletado: {title[:50]}...")
                     # brief pause to be polite to the site
                     time.sleep(0.2)
-                except Exception:
-                    # ignore and continue
+                except Exception as e:
+                    print(f"  Erro ao processar {link}: {e}")
                     continue
 
         browser.close()
