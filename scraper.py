@@ -144,7 +144,7 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
     skipped_existing = 0
     # Garante criação do arquivo CSV com cabeçalho
     import csv
-    fieldnames = ['url', 'title', 'date', 'content', 'source', 'scraped_at']
+    fieldnames = ['url', 'title', 'date', 'content', 'source']
     if not os.path.exists(output):
         with open(output, 'w', encoding='utf-8', newline='') as fout:
             writer = csv.DictWriter(fout, fieldnames=fieldnames)
@@ -153,13 +153,11 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
     # Load existing URLs from output CSV file to avoid duplicates across runs
     if load_existing and os.path.exists(output):
         try:
-            import csv
             with open(output, 'r', encoding='utf-8', newline='') as fin:
                 reader = csv.DictReader(fin)
                 for row in reader:
-                    url = row.get('url')
-                    if url:
-                        seen.add(url)
+                    key = tuple(row.get(f) for f in fieldnames)
+                    seen.add(key)
         except Exception:
             pass
     print(f"Iniciando scraper... URLs já coletadas: {len(seen)}")
@@ -173,7 +171,6 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
         candidates = set()
         try:
             sitemap_urls = _collect_links_from_sitemap()
-            print(f"URLs encontradas no sitemap: {len(sitemap_urls)}")
             for u in sitemap_urls:
                 lu = u.lower()
                 if any(k in lu for k in health_keywords):
@@ -181,12 +178,9 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
             print(f"URLs relevantes de saúde no boatos.org: {len(candidates)}")
         except Exception as e:
             print(f"Erro ao coletar sitemap: {e}")
-            pass
 
-        # Depois busca paginada e fallback
-        print("Coletando URLs das buscas paginadas...")
+        # Fallback: search for each query
         for q in queries:
-            print(f"Buscando termo: {q}")
             try:
                 links = _collect_links_from_search_paginated(page, q, max_pages=max_pages_per_query)
                 print(f"URLs encontradas para '{q}': {len(links)}")
@@ -200,23 +194,7 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
                     pass
                 continue
 
-        print(f"Total de candidatos após busca paginada: {len(candidates)}")
-
-        print("Executando busca single-page como fallback...")
-        for q in queries:
-            try:
-                links = _collect_links_from_search(page, q)
-                print(f"URLs fallback para '{q}': {len(links)}")
-                candidates.update(links)
-            except Exception:
-                continue
-
-        print(f"Total de candidatos finais: {len(candidates)}")
-        new_candidates = candidates - seen
-        print(f"URLs novas para processar: {len(new_candidates)}")
-
-        # iterate candidates and fetch content, stopping at max_articles
-        print(f"Iniciando processamento de {len(candidates)} candidatos...")
+        # Process all collected candidates
         processed = 0
         with open(output, 'a', encoding='utf-8', newline='') as fout:
             writer = csv.DictWriter(fout, fieldnames=fieldnames)
@@ -227,9 +205,6 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
                 if count >= max_articles:
                     print(f"Limite de {max_articles} artigos atingido")
                     break
-                if link in seen:
-                    skipped_existing += 1
-                    continue
                 print(f"Processando: {link}")
                 try:
                     page.goto(link, timeout=30000, wait_until='domcontentloaded')
@@ -239,25 +214,26 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
                     content = _extract_text(page)
                     if not content or len(content.split()) < 30:
                         print(f"  Pulando: conteúdo muito curto ({len(content.split()) if content else 0} palavras)")
-                        seen.add(link)
                         continue
                     # filter by content keywords to ensure relevance
                     lc = content.lower()
                     if not any(k in lc for k in health_keywords) and not any(k in link.lower() for k in health_keywords):
                         print(f"  Pulando: não relevante para saúde")
-                        seen.add(link)
                         continue
                     record = {
                         'url': link,
                         'title': title,
                         'date': date,
                         'content': content,
-                        'source': 'boatos.org',
-                        'scraped_at': time.strftime('%Y-%m-%dT%H:%M:%S')
+                        'source': 'boatos.org'
                     }
+                    key = tuple(record[f] for f in fieldnames)
+                    if key in seen:
+                        skipped_existing += 1
+                        continue
                     writer.writerow(record)
                     fout.flush()  # Force write to disk
-                    seen.add(link)
+                    seen.add(key)
                     count += 1
                     print(f"  ✓ Coletado: {title[:50]}...")
                     # brief pause to be polite to the site
