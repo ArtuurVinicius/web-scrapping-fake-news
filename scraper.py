@@ -137,9 +137,16 @@ def _collect_links_from_sitemap(sitemap_url='https://www.boatos.org/sitemap.xml'
 
 
 def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True, load_existing=True, max_pages_per_query=50, use_sitemap=True):
-    queries = ['saúde', 'saude', 'vacina', 'vacinas', 'covid', 'coronavírus', 'coronavirus', 'medicamento', 'hospital', 'tratamento', 'doença', 'doenca']
+    queries = [
+        'saúde', 'saude', 'vacina', 'vacinas', 'covid', 'coronavírus', 'coronavirus', 'medicamento', 'hospital',
+        'tratamento', 'doença', 'doenca', 'sintoma', 'epidemia', 'pandemia', 'febre', 'gripe', 'dengue',
+        'zika', 'chikungunya', 'h1n1', 'sarampo', 'câncer', 'cancer', 'aids', 'hiv', 'oms', 'anvisa',
+        'sus', 'infecção', 'infectado', 'cura', 'remédio', 'remedios', 'farmácia', 'farmacia', 'enfermidade',
+        'prevenção', 'prevencao', 'imunização', 'imunizacao', 'mutação', 'mutacao', 'vírus', 'virus', 'bactéria', 'bacteria'
+    ]
     health_keywords = [q.lower() for q in queries]
     seen = set()
+    
     count = 0
     skipped_existing = 0
     # Garante criação do arquivo CSV com cabeçalho
