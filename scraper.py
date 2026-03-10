@@ -142,7 +142,8 @@ def scrape_boatos_saude(output='corpus.jsonl', max_articles=2000, headless=True,
         'tratamento', 'doença', 'doenca', 'sintoma', 'epidemia', 'pandemia', 'febre', 'gripe', 'dengue',
         'zika', 'chikungunya', 'h1n1', 'sarampo', 'câncer', 'cancer', 'aids', 'hiv', 'oms', 'anvisa',
         'sus', 'infecção', 'infectado', 'cura', 'remédio', 'remedios', 'farmácia', 'farmacia', 'enfermidade',
-        'prevenção', 'prevencao', 'imunização', 'imunizacao', 'mutação', 'mutacao', 'vírus', 'virus', 'bactéria', 'bacteria'
+        'prevenção', 'prevencao', 'imunização', 'imunizacao', 'mutação', 'mutacao', 'vírus', 'virus', 'bactéria', 'bacteria', 'cura',
+        'infecção', 'infeccao', 'contágio', 'contagio', 'quarentena'
     ]
     health_keywords = [q.lower() for q in queries]
     seen = set()
