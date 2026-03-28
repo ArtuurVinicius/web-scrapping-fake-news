@@ -1,0 +1,7 @@
+﻿Analise estatistica basica do tamanho dos textos
+Arquivo: corpus.csv
+Coluna de texto utilizada: content
+Total de registros: 5076
+Media de palavras por registro: 738.84
+Minimo de palavras em um registro: 122
+Maximo de palavras em um registro: 3135
